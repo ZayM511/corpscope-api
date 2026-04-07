@@ -11,8 +11,6 @@ const companyRoutes = require('./routes/company');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-
-// Company: Groundwork Labs LLC (California)
 const COMPANY = {
   name: 'Groundwork Labs LLC',
   type: 'Limited Liability Company',
@@ -20,15 +18,26 @@ const COMPANY = {
   website: 'https://groundworklabs.com'
 };
 
+// ── Security ────────────────────────────────────────
 app.use(helmet());
-app.use(cors({ origin: '*' }));
-app.use(express.json());
+app.use(cors({
+  origin: process.env.CORS_ORIGIN || '*',
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type', 'x-api-key', 'x-terms-accepted']
+}));
+app.use(express.json({ limit: '1mb' }));
+
+// ── Logging & Rate Limiting ─────────────────────────
 app.use(requestLogger);
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: parseInt(process.env.RATE_LIMIT_MAX || '200', 10),
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many requests', retryAfter: '15 minutes' }
+}));
 
-const limiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 100 });
-app.use(limiter);
-
-// Groundwork Labs LLC headers
+// ── Company Headers ─────────────────────────────────
 app.use((req, res, next) => {
   res.setHeader('X-Company', COMPANY.name);
   res.setHeader('X-Jurisdiction', COMPANY.jurisdiction);
@@ -36,14 +45,13 @@ app.use((req, res, next) => {
   next();
 });
 
-app.use('/api', apiKeyAuth);
-app.use('/api/company', termsAcceptance, validate(schemas.companyLookup, 'body'), companyRoutes);
-
-app.get('/health', (req, res) => res.json({ 
-  status: 'ok', 
-  company: COMPANY.name,
-  jurisdiction: COMPANY.jurisdiction,
-  timestamp: new Date().toISOString() 
+// ── Public Routes ───────────────────────────────────
+app.get('/health', (req, res) => res.json({
+  status: 'ok',
+  service: 'Company Enrichment API',
+  version: '1.0.0',
+  uptime: Math.floor(process.uptime()),
+  timestamp: new Date().toISOString()
 }));
 
 app.get('/legal', (req, res) => res.json({
@@ -54,22 +62,60 @@ app.get('/legal', (req, res) => res.json({
   privacyPolicy: 'https://github.com/ZayM511/company-enrichment-api/blob/main/legal/PrivacyPolicy.md'
 }));
 
-app.get('/', (req, res) => res.json({ 
+app.get('/', (req, res) => res.json({
   service: 'Company Enrichment API',
   company: COMPANY.name,
-  type: COMPANY.type,
-  version: '1.0.0'
+  version: '1.0.0',
+  endpoints: {
+    health: 'GET /health',
+    legal: 'GET /legal',
+    verify: 'GET /api/verify',
+    enrich: 'POST /api/company/enrich',
+    bulk: 'POST /api/company/bulk'
+  }
 }));
 
-app.listen(PORT, () => {
+// ── Authenticated Routes ────────────────────────────
+app.use('/api', apiKeyAuth);
+
+app.get('/api/verify', (req, res) => {
+  res.json({ valid: true, plan: req.apiKey.plan, remaining: req.apiKey.remaining });
+});
+
+app.use('/api/company', termsAcceptance, validate(schemas.companyLookup, 'body'), companyRoutes);
+
+// ── 404 ─────────────────────────────────────────────
+app.use((req, res) => {
+  res.status(404).json({ error: 'Not found', path: req.path, hint: 'GET / for available endpoints' });
+});
+
+// ── Error Handler ───────────────────────────────────
+app.use((err, req, res, _next) => {
+  console.error(`[ERROR] ${err.stack || err.message}`);
+  res.status(err.status || 500).json({
+    error: (err.status || 500) >= 500 ? 'Internal server error' : err.message,
+    requestId: req.requestId
+  });
+});
+
+// ── Start ───────────────────────────────────────────
+const server = app.listen(PORT, () => {
   console.log(`
 ╔═══════════════════════════════════════════════════╗
-║   Company Enrichment API                          ║
+║   Company Enrichment API  v1.0.0                  ║
 ║   © 2026 ${COMPANY.name}                    ║
 ║   ${COMPANY.jurisdiction}                                 ║
-║   Running on port ${PORT}                              ║
+║   Port ${PORT} │ ${process.env.NODE_ENV || 'development'}                          ║
 ╚═══════════════════════════════════════════════════╝
   `);
 });
+
+const shutdown = (signal) => {
+  console.log(`\n[${signal}] Shutting down...`);
+  server.close(() => process.exit(0));
+  setTimeout(() => process.exit(1), 10000);
+};
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 module.exports = app;

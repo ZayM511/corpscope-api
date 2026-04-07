@@ -2,30 +2,136 @@
   "openapi": "3.0.3",
   "info": {
     "title": "Company Enrichment API",
-    "description": "Company data enrichment - Groundwork Labs LLC",
-    "version": "1.0.0"
+    "description": "Turn company domains, names, or LinkedIn URLs into rich profiles with DNS intelligence. Provided by Groundwork Labs LLC.",
+    "version": "1.1.0",
+    "contact": {
+      "name": "Groundwork Labs LLC",
+      "email": "support@groundworklabs.com"
+    }
   },
+  "servers": [
+    { "url": "https://company-enrichment-api.onrender.com", "description": "Production" },
+    { "url": "http://localhost:3000", "description": "Local" }
+  ],
   "paths": {
+    "/": {
+      "get": {
+        "summary": "API info",
+        "tags": ["Public"],
+        "responses": { "200": { "description": "Service info and endpoints" } }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "tags": ["Public"],
+        "responses": { "200": { "description": "Service status" } }
+      }
+    },
+    "/api/verify": {
+      "get": {
+        "summary": "Verify API key",
+        "tags": ["Auth"],
+        "security": [{ "ApiKeyAuth": [] }],
+        "responses": {
+          "200": { "description": "Key valid with remaining quota" }
+        }
+      }
+    },
     "/api/company/enrich": {
       "post": {
-        "summary": "Enrich company data",
+        "summary": "Enrich a single company",
+        "tags": ["Enrichment"],
+        "security": [{ "ApiKeyAuth": [] }],
         "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CompanyInput" },
+              "examples": {
+                "byDomain": { "value": { "domain": "stripe.com" } },
+                "byName": { "value": { "name": "Stripe" } },
+                "byLinkedin": { "value": { "linkedin": "https://linkedin.com/company/stripe" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Enriched company data",
+            "content": {
+              "application/json": {
+                "example": {
+                  "success": true,
+                  "data": {
+                    "company": {
+                      "name": "Stripe",
+                      "domain": "stripe.com",
+                      "description": "Financial infrastructure for the internet",
+                      "socials": { "twitter": "https://twitter.com/stripe" }
+                    },
+                    "dns": {
+                      "emailProvider": "Google Workspace",
+                      "emailSecurity": { "spf": true, "dmarc": true },
+                      "techSignals": ["Google Search Console", "Facebook Business"]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Validation error" },
+          "429": { "description": "Rate limit exceeded" }
+        }
+      }
+    },
+    "/api/company/bulk": {
+      "post": {
+        "summary": "Bulk enrich up to 25 companies (Basic/Pro)",
+        "tags": ["Enrichment"],
+        "security": [{ "ApiKeyAuth": [] }],
+        "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "type": "object",
+                "required": ["companies"],
                 "properties": {
-                  "domain": { "type": "string" },
-                  "linkedin": { "type": "string" },
-                  "name": { "type": "string" }
+                  "companies": {
+                    "type": "array",
+                    "maxItems": 25,
+                    "items": { "$ref": "#/components/schemas/CompanyInput" }
+                  }
                 }
               }
             }
           }
         },
         "responses": {
-          "200": { "description": "Company data" }
+          "200": { "description": "Bulk enrichment results" },
+          "403": { "description": "Requires paid plan" }
         }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "ApiKeyAuth": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-api-key"
+      }
+    },
+    "schemas": {
+      "CompanyInput": {
+        "type": "object",
+        "properties": {
+          "domain": { "type": "string", "example": "stripe.com" },
+          "name": { "type": "string", "example": "Stripe" },
+          "linkedin": { "type": "string", "format": "uri", "example": "https://linkedin.com/company/stripe" }
+        },
+        "minProperties": 1
       }
     }
   }

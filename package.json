@@ -1,10 +1,19 @@
 {
   "name": "company-enrichment-api",
-  "version": "1.0.0",
-  "description": "Company data enrichment API - Groundwork Labs LLC",
+  "version": "1.1.0",
+  "description": "Company data enrichment API - Groundwork Labs LLC (California)",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "dev": "NODE_ENV=development node src/index.js",
+    "test": "node test.js"
+  },
+  "keywords": ["company", "enrichment", "api", "data"],
+  "author": "Groundwork Labs LLC",
+  "license": "UNLICENSED",
+  "private": true,
+  "engines": {
+    "node": ">=18.0.0"
   },
   "dependencies": {
     "express": "^4.18.2",

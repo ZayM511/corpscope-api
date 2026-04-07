@@ -1,59 +1,164 @@
 const axios = require('axios');
 const cheerio = require('cheerio');
+const dns = require('dns').promises;
 
-const scrapeLinkedIn = async (linkedinUrl) => {
+/**
+ * Company Enrichment Engine
+ * Attempts real data extraction before falling back to structured placeholders.
+ */
+
+// ── Website Scraper ─────────────────────────────────
+const scrapeWebsite = async (domain) => {
+  const url = domain.startsWith('http') ? domain : `https://${domain}`;
   try {
-    const { data } = await axios.get(linkedinUrl, {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      timeout: 10000
+    const { data, request } = await axios.get(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (compatible; CompanyEnrichBot/1.0)',
+        'Accept': 'text/html,application/xhtml+xml'
+      },
+      timeout: 10000,
+      maxRedirects: 5
     });
+
     const $ = cheerio.load(data);
-    // LinkedIn blocks most scraping - mock fallback
-    return getMockData(linkedinUrl);
+    const finalUrl = request?.res?.responseUrl || url;
+
+    // Extract metadata
+    const title = $('title').text().trim();
+    const metaDesc = $('meta[name="description"]').attr('content')?.trim()
+      || $('meta[property="og:description"]').attr('content')?.trim();
+    const ogImage = $('meta[property="og:image"]').attr('content')?.trim();
+    const ogTitle = $('meta[property="og:title"]').attr('content')?.trim();
+
+    // Try to find social links
+    const socials = {};
+    $('a[href]').each((_, el) => {
+      const href = $(el).attr('href') || '';
+      if (href.includes('linkedin.com/company')) socials.linkedin = href;
+      if (href.includes('twitter.com/') || href.includes('x.com/')) socials.twitter = href;
+      if (href.includes('facebook.com/')) socials.facebook = href;
+      if (href.includes('github.com/')) socials.github = href;
+    });
+
+    // Try to find address/location
+    const bodyText = $('body').text();
+    const addressMatch = bodyText.match(/\d{1,5}\s[\w\s]+(?:Street|St|Avenue|Ave|Boulevard|Blvd|Road|Rd|Drive|Dr|Lane|Ln|Way|Court|Ct),?\s*[\w\s]+,?\s*[A-Z]{2}\s*\d{5}/i);
+
+    // Try to find email
+    const emailMatch = bodyText.match(/[\w.+-]+@[\w-]+\.[\w.-]+/);
+    const contactEmail = emailMatch ? emailMatch[0] : null;
+
+    // Try to find phone
+    const phoneMatch = bodyText.match(/\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}/);
+
+    return {
+      name: ogTitle || title.split(/[|\-–—]/)[0].trim() || domain,
+      domain: domain.replace(/^https?:\/\//, '').replace(/\/$/, ''),
+      url: finalUrl,
+      description: metaDesc || null,
+      logo: ogImage || null,
+      socials,
+      contact: {
+        email: contactEmail,
+        phone: phoneMatch ? phoneMatch[0] : null,
+        address: addressMatch ? addressMatch[0] : null
+      },
+      scraped: true
+    };
   } catch (error) {
-    return getMockData(linkedinUrl);
+    return { domain, error: error.message, scraped: false };
   }
 };
 
-const scrapeDomain = async (domain) => {
+// ── DNS Enrichment ──────────────────────────────────
+const enrichWithDns = async (domain) => {
+  const clean = domain.replace(/^https?:\/\//, '').split('/')[0];
   try {
-    const url = domain.startsWith('http') ? domain : `https://${domain}`;
-    const { data } = await axios.get(url, {
-      headers: { 'User-Agent': 'Mozilla/5.0' },
-      timeout: 10000
-    });
-    const $ = cheerio.load(data);
-    const name = $('title').text().split('|')[0].trim();
-    return getMockData(domain, name);
+    const [mx, txt] = await Promise.allSettled([
+      dns.resolveMx(clean),
+      dns.resolveTxt(clean)
+    ]);
+
+    const mxRecords = mx.status === 'fulfilled' ? mx.value : [];
+    const txtRecords = txt.status === 'fulfilled' ? txt.value.flat() : [];
+
+    // Detect email provider from MX
+    let emailProvider = 'unknown';
+    const mxHost = mxRecords[0]?.exchange?.toLowerCase() || '';
+    if (mxHost.includes('google') || mxHost.includes('gmail')) emailProvider = 'Google Workspace';
+    else if (mxHost.includes('outlook') || mxHost.includes('microsoft')) emailProvider = 'Microsoft 365';
+    else if (mxHost.includes('zoho')) emailProvider = 'Zoho Mail';
+    else if (mxHost.includes('proton')) emailProvider = 'ProtonMail';
+    else if (mxHost.includes('mimecast')) emailProvider = 'Mimecast';
+    else if (mxRecords.length > 0) emailProvider = mxHost;
+
+    // Detect SPF, DMARC from TXT
+    const hasSPF = txtRecords.some(r => r.includes('v=spf1'));
+    const hasDMARC = txtRecords.some(r => r.includes('v=DMARC1'));
+
+    // Detect tech stack from TXT records
+    const techSignals = [];
+    for (const record of txtRecords) {
+      if (record.includes('google-site-verification')) techSignals.push('Google Search Console');
+      if (record.includes('facebook-domain-verification')) techSignals.push('Facebook Business');
+      if (record.includes('hubspot')) techSignals.push('HubSpot');
+      if (record.includes('salesforce')) techSignals.push('Salesforce');
+      if (record.includes('atlassian')) techSignals.push('Atlassian');
+      if (record.includes('docusign')) techSignals.push('DocuSign');
+      if (record.includes('stripe')) techSignals.push('Stripe');
+    }
+
+    return {
+      emailProvider,
+      emailSecurity: { spf: hasSPF, dmarc: hasDMARC },
+      techSignals: [...new Set(techSignals)],
+      mxRecordCount: mxRecords.length
+    };
   } catch (error) {
-    return getMockData(domain);
+    return { emailProvider: 'unknown', emailSecurity: {}, techSignals: [], error: error.message };
   }
 };
 
-const getMockData = (input, name) => {
-  const companies = [
-    { name: 'Acme Corp', founded: 2015, employees: '50-200', funding: 'Series A', linkedin: 'https://linkedin.com/company/acme', twitter: 'https://twitter.com/acme' },
-    { name: 'TechStart Inc', founded: 2018, employees: '10-50', funding: 'Seed', linkedin: 'https://linkedin.com/company/techstart', twitter: 'https://twitter.com/techstart' },
-    { name: 'GlobalTech Solutions', founded: 2010, employees: '200-500', funding: 'Series B', linkedin: 'https://linkedin.com/company/globaltech', twitter: 'https://twitter.com/globaltech' },
-    { name: 'InnovateCo', founded: 2020, employees: '1-10', funding: 'Bootstrapped', linkedin: 'https://linkedin.com/company/innovateco', twitter: 'https://twitter.com/innovateco' },
-    { name: 'DataDriven LLC', founded: 2016, employees: '50-100', funding: 'Series A', linkedin: 'https://linkedin.com/company/datadriven', twitter: 'https://twitter.com/datadriven' }
-  ];
-  const data = companies[Math.floor(Math.random() * companies.length)];
-  return {
-    ...data,
-    input,
-    description: `${data.name} is a leading provider of innovative solutions.`,
-    industry: 'Technology',
-    size: data.employees,
-    headquarters: 'San Francisco, CA',
-    scrapedAt: new Date().toISOString()
-  };
-};
-
+// ── Main Enrichment Function ────────────────────────
 const enrichCompany = async (input) => {
-  if (input.linkedin) return scrapeLinkedIn(input.linkedin);
-  if (input.domain) return scrapeDomain(input.domain);
-  return getMockData(input.name, input.name);
+  const startTime = Date.now();
+  const domain = input.domain || null;
+  const name = input.name || null;
+  const linkedin = input.linkedin || null;
+
+  let result = {
+    input: { domain, name, linkedin },
+    company: {},
+    dns: {},
+    enrichedAt: new Date().toISOString()
+  };
+
+  // Scrape website if domain provided
+  if (domain) {
+    const [siteData, dnsData] = await Promise.all([
+      scrapeWebsite(domain),
+      enrichWithDns(domain)
+    ]);
+    result.company = siteData;
+    result.dns = dnsData;
+  } else if (name) {
+    // Try to guess domain from company name
+    const guessedDomain = name.toLowerCase().replace(/[^a-z0-9]/g, '') + '.com';
+    try {
+      await dns.resolve(guessedDomain);
+      const [siteData, dnsData] = await Promise.all([
+        scrapeWebsite(guessedDomain),
+        enrichWithDns(guessedDomain)
+      ]);
+      result.company = siteData;
+      result.dns = dnsData;
+    } catch {
+      result.company = { name, scraped: false, note: 'Could not resolve domain. Provide domain directly for better results.' };
+    }
+  }
+
+  result.processingMs = Date.now() - startTime;
+  return result;
 };
 
-module.exports = { enrichCompany };
+module.exports = { enrichCompany, scrapeWebsite, enrichWithDns };
