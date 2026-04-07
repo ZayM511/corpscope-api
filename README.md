@@ -2,9 +2,11 @@
 
 **© 2026 Groundwork Labs LLC** — A California Limited Liability Company
 
+![Logo](logo.jpg)
+
 ## About
 
-**Groundwork Labs LLC** provides company data enrichment APIs for sales teams, recruiters, and investors.
+**Groundwork Labs LLC** provides company data enrichment APIs for sales teams, recruiters, and investors. Turn company names, domains, or LinkedIn URLs into rich company profiles instantly.
 
 ## Quick Start
 ```bash
@@ -25,6 +27,10 @@ npm start
 POST /api/company/enrich
 x-api-key: YOUR_KEY
 Body: { "domain": "example.com" }
+# or
+Body: { "linkedin": "https://linkedin.com/company/example" }
+# or
+Body: { "name": "Example Inc" }
 ```
 
 ## Response
