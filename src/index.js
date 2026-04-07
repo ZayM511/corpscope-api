@@ -48,7 +48,7 @@ app.use((req, res, next) => {
 // ── Public Routes ───────────────────────────────────
 app.get('/health', (req, res) => res.json({
   status: 'ok',
-  service: 'Company Enrichment API',
+  service: 'CorpScope API',
   version: '1.0.0',
   uptime: Math.floor(process.uptime()),
   timestamp: new Date().toISOString()
@@ -58,12 +58,12 @@ app.get('/legal', (req, res) => res.json({
   company: COMPANY.name,
   type: COMPANY.type,
   jurisdiction: COMPANY.jurisdiction,
-  termsOfService: 'https://github.com/ZayM511/company-enrichment-api/blob/main/legal/TermsOfService.md',
-  privacyPolicy: 'https://github.com/ZayM511/company-enrichment-api/blob/main/legal/PrivacyPolicy.md'
+  termsOfService: 'https://github.com/ZayM511/corpscope-api/blob/main/legal/TermsOfService.md',
+  privacyPolicy: 'https://github.com/ZayM511/corpscope-api/blob/main/legal/PrivacyPolicy.md'
 }));
 
 app.get('/', (req, res) => res.json({
-  service: 'Company Enrichment API',
+  service: 'CorpScope API',
   company: COMPANY.name,
   version: '1.0.0',
   endpoints: {
@@ -102,7 +102,7 @@ app.use((err, req, res, _next) => {
 const server = app.listen(PORT, () => {
   console.log(`
 ╔═══════════════════════════════════════════════════╗
-║   Company Enrichment API  v1.0.0                  ║
+║   CorpScope API  v1.1.0                  ║
 ║   © 2026 ${COMPANY.name}                    ║
 ║   ${COMPANY.jurisdiction}                                 ║
 ║   Port ${PORT} │ ${process.env.NODE_ENV || 'development'}                          ║

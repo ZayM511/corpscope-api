@@ -1,7 +1,7 @@
 {
   "openapi": "3.0.3",
   "info": {
-    "title": "Company Enrichment API",
+    "title": "CorpScope API",
     "description": "Turn company domains, names, or LinkedIn URLs into rich profiles with DNS intelligence. Provided by Groundwork Labs LLC.",
     "version": "1.1.0",
     "contact": {

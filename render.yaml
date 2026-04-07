@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: company-enrichment-api
+    name: corpscope-api
     env: node
     region: oregon
     buildCommand: npm install
