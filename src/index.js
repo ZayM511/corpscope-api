@@ -8,6 +8,7 @@ const termsAcceptance = require('./middleware/termsAcceptance');
 const requestLogger = require('./middleware/requestLogger');
 const { validate, schemas } = require('./middleware/validation');
 const companyRoutes = require('./routes/company');
+const stripeRoutes = require('./routes/stripe');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -71,7 +72,9 @@ app.get('/', (req, res) => res.json({
     legal: 'GET /legal',
     verify: 'GET /api/verify',
     enrich: 'POST /api/company/enrich',
-    bulk: 'POST /api/company/bulk'
+    bulk: 'POST /api/company/bulk',
+    plans: 'GET /api/stripe/plans',
+    checkout: 'POST /api/stripe/checkout'
   }
 }));
 
@@ -83,6 +86,7 @@ app.get('/api/verify', (req, res) => {
 });
 
 app.use('/api/company', termsAcceptance, validate(schemas.companyLookup, 'body'), companyRoutes);
+app.use('/api/stripe', termsAcceptance, stripeRoutes);
 
 // ── 404 ─────────────────────────────────────────────
 app.use((req, res) => {
