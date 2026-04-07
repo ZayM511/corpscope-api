@@ -1,0 +1,32 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Company Enrichment API",
+    "description": "Company data enrichment - Groundwork Labs LLC",
+    "version": "1.0.0"
+  },
+  "paths": {
+    "/api/company/enrich": {
+      "post": {
+        "summary": "Enrich company data",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "domain": { "type": "string" },
+                  "linkedin": { "type": "string" },
+                  "name": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Company data" }
+        }
+      }
+    }
+  }
+}
