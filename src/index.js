@@ -2,7 +2,10 @@ require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
+const path = require('path');
 const rateLimit = require('express-rate-limit');
+const swaggerUi = require('swagger-ui-express');
+const openApiSpec = require('../openapi.json');
 const apiKeyAuth = require('./middleware/apiKeyAuth');
 const termsAcceptance = require('./middleware/termsAcceptance');
 const requestLogger = require('./middleware/requestLogger');
@@ -27,8 +30,6 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'x-api-key', 'x-terms-accepted']
 }));
 app.use(express.json({ limit: '1mb' }));
-
-// ── Logging & Rate Limiting ─────────────────────────
 app.use(requestLogger);
 app.use(rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -38,7 +39,6 @@ app.use(rateLimit({
   message: { error: 'Too many requests', retryAfter: '15 minutes' }
 }));
 
-// ── Company Headers ─────────────────────────────────
 app.use((req, res, next) => {
   res.setHeader('X-Company', COMPANY.name);
   res.setHeader('X-Jurisdiction', COMPANY.jurisdiction);
@@ -46,80 +46,60 @@ app.use((req, res, next) => {
   next();
 });
 
+// ── Docs ────────────────────────────────────────────
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(openApiSpec, {
+  customCss: '.swagger-ui .topbar { display: none }',
+  customSiteTitle: 'CorpScope API Docs'
+}));
+
 // ── Public Routes ───────────────────────────────────
 app.get('/health', (req, res) => res.json({
-  status: 'ok',
-  service: 'CorpScope API',
-  version: '1.0.0',
-  uptime: Math.floor(process.uptime()),
-  timestamp: new Date().toISOString()
+  status: 'ok', service: 'CorpScope API', version: '1.1.0',
+  uptime: Math.floor(process.uptime()), timestamp: new Date().toISOString()
 }));
 
 app.get('/legal', (req, res) => res.json({
-  company: COMPANY.name,
-  type: COMPANY.type,
-  jurisdiction: COMPANY.jurisdiction,
+  company: COMPANY.name, type: COMPANY.type, jurisdiction: COMPANY.jurisdiction,
   termsOfService: 'https://github.com/ZayM511/corpscope-api/blob/main/legal/TermsOfService.md',
   privacyPolicy: 'https://github.com/ZayM511/corpscope-api/blob/main/legal/PrivacyPolicy.md'
 }));
 
-app.get('/', (req, res) => res.json({
-  service: 'CorpScope API',
-  company: COMPANY.name,
-  version: '1.0.0',
-  endpoints: {
-    health: 'GET /health',
-    legal: 'GET /legal',
-    verify: 'GET /api/verify',
-    enrich: 'POST /api/company/enrich',
-    bulk: 'POST /api/company/bulk',
-    plans: 'GET /api/stripe/plans',
-    checkout: 'POST /api/stripe/checkout'
+app.get('/', (req, res) => {
+  const accept = req.headers.accept || '';
+  if (accept.includes('text/html')) {
+    return res.sendFile(path.join(__dirname, 'public', 'index.html'));
   }
-}));
+  res.json({
+    service: 'CorpScope API', company: COMPANY.name, version: '1.1.0',
+    website: '/', docs: '/api-docs',
+    endpoints: {
+      health: 'GET /health', legal: 'GET /legal', verify: 'GET /api/verify',
+      enrich: 'POST /api/company/enrich', bulk: 'POST /api/company/bulk',
+      plans: 'GET /api/stripe/plans', checkout: 'POST /api/stripe/checkout'
+    }
+  });
+});
 
 // ── Authenticated Routes ────────────────────────────
 app.use('/api', apiKeyAuth);
-
 app.get('/api/verify', (req, res) => {
   res.json({ valid: true, plan: req.apiKey.plan, remaining: req.apiKey.remaining });
 });
-
 app.use('/api/company', termsAcceptance, validate(schemas.companyLookup, 'body'), companyRoutes);
 app.use('/api/stripe', termsAcceptance, stripeRoutes);
 
-// ── 404 ─────────────────────────────────────────────
-app.use((req, res) => {
-  res.status(404).json({ error: 'Not found', path: req.path, hint: 'GET / for available endpoints' });
-});
-
-// ── Error Handler ───────────────────────────────────
+// ── 404 & Error ─────────────────────────────────────
+app.use((req, res) => { res.status(404).json({ error: 'Not found', path: req.path, hint: 'GET / for endpoints' }); });
 app.use((err, req, res, _next) => {
   console.error(`[ERROR] ${err.stack || err.message}`);
-  res.status(err.status || 500).json({
-    error: (err.status || 500) >= 500 ? 'Internal server error' : err.message,
-    requestId: req.requestId
-  });
+  res.status(err.status || 500).json({ error: (err.status || 500) >= 500 ? 'Internal server error' : err.message, requestId: req.requestId });
 });
 
 // ── Start ───────────────────────────────────────────
 const server = app.listen(PORT, () => {
-  console.log(`
-╔═══════════════════════════════════════════════════╗
-║   CorpScope API  v1.1.0                  ║
-║   © 2026 ${COMPANY.name}                    ║
-║   ${COMPANY.jurisdiction}                                 ║
-║   Port ${PORT} │ ${process.env.NODE_ENV || 'development'}                          ║
-╚═══════════════════════════════════════════════════╝
-  `);
+  console.log(`\n  CorpScope API v1.1.0 | Port ${PORT} | ${process.env.NODE_ENV || 'development'}\n  © 2026 ${COMPANY.name}\n`);
 });
-
-const shutdown = (signal) => {
-  console.log(`\n[${signal}] Shutting down...`);
-  server.close(() => process.exit(0));
-  setTimeout(() => process.exit(1), 10000);
-};
+const shutdown = (s) => { console.log(`\n[${s}] Shutting down...`); server.close(() => process.exit(0)); setTimeout(() => process.exit(1), 10000); };
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
-
 module.exports = app;
